@@ -3,7 +3,8 @@
 
 ; Overwrite '}' in #{ .. }
 ((ViMap insertMap) map:"}" toExpression:(do ()
-	(if (eq '}' (text currentCharacter))
-		(text input:"<right>")
-		(else (text input:"<ctrl-v>}")))) scope:"source.ruby string.quoted source.ruby.embedded")
+	(let (text (current-text))
+		(if (eq '}' (text currentCharacter))
+			(text input:"<right>")
+			(else (text input:"<ctrl-v>}"))))) scope:"source.ruby string.quoted source.ruby.embedded")
 

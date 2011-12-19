@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple Computer//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
 	<key>beforeRunningCommand</key>
 	<string>nop</string>
 	<key>command</key>
-	<string>#!/usr/bin/env ruby -w
+	<string>#!/usr/bin/env ruby
 
 require "#{ENV["TM_SUPPORT_PATH"]}/lib/exit_codes"
 require "#{ENV["TM_SUPPORT_PATH"]}/lib/ui"
@@ -42,7 +42,7 @@ command     = &lt;&lt;END_COMMAND.tr("\n", " ").strip
 --column=#{ENV['TM_LINE_INDEX']}
 2&gt; /dev/null
 END_COMMAND
-completions = `#{command}`.to_a.map { |l| l.strip }.select { |l| l =~ /\S/ }
+completions = `#{command}`.split("\n").map { |l| l.strip }.select { |l| l =~ /\S/ }
 
 if not $?.success?
   TextMate.exit_show_tool_tip "Parse error."

@@ -9,13 +9,107 @@
 			(else (text input:"<ctrl-v>}"))))) scope:"source.ruby string.quoted source.ruby.embedded")
 
 
+;
+; A set of line-oriented operations 
+;
+
+; returns the current carret location
+(function caret ()
+  ((current-text) caret))
+
+; Returns the line number of the current line
+(function current-line ()
+  ((current-text) currentLine))
+
+; Returns the line at the given caret location
+(function line-at (location)
+  (((current-text) textStorage) lineNumberAtLocation:location))
+
+; Returns the text of the line in question
+; nil if the line is out of bounds
+(function line-string (line)
+  (if (and (>= line (first-line)) (<= line (last-line)))
+    (let (range (((current-text) textStorage) rangeOfLine:line))
+  
+      ((((current-text) textStorage) string) substringWithRange:range))))
+
+; Returns the first line of the document
+(function first-line ()
+  1)
+
+; Returns the last line. 0 if the document is empty
+(function last-line ()
+  (((current-text) textStorage) lineCount))
+  
+; Iterates through the lines in the given range and 
+; Executes the lambda for each of those lines
+; The lambda gets the line (number) as an argument
+; 
+; begin-line and end-line may be nil in which case the 
+; first line and the last line of the current document are taken
+(function each-line-in-line-range (begin-line end-line lambda)
+  (let ((stop-line (cond 
+                      ((not end-line)             (last-line))
+                      ((> end-line (last-line))   (last-line))
+                      (else                       end-line)))
+        (start-line (cond
+                      ((not begin-line)            (first-line))
+                      ((< begin-line (first-line)) (first-line))
+                      (else                        begin-line))))
+
+    (for ((set l start-line) (<= l stop-line) (set l (+ l 1)))
+      (lambda l))))
+
+; Iterates through each line 
+(function each-line (lambda)
+  (each-line-in-line-range nil nil lambda))
+
+; Iterates through each line after the line
+(function each-line-from (line lambda)
+  (each-line-in-line-range line nil lambda))
+
+; Finds the next line matching the given pattern
+(function line-matching-pattern (start-line pattern)
+  (set result-line nil)
+
+  (each-line-from start-line (do (line) 
+    (set line-match (pattern findInString:(line-string line)))
+    (if line-match
+      (set result-line line)
+      (break))))
+
+  result-line)
+
+(function line-matching-pattern-and-indent (start-line pattern indent)
+  (set result-line nil)
+  
+  (each-line-from start-line (do (line)
+    (if (== (indent-of-line line) indent)
+      (set line-match (pattern findInString:(line-string line)))
+      (if line-match
+        (set result-line line)
+        (break)))))
+  result-line)
+
+; Does the given line match the given pattern
+(function line-matches-pattern? (line pattern)
+  (pattern findInString:(line-string line)))
+
+; Indent of the line in question
+(function indent-of-line (line)
+  (let (storage ((current-text) textStorage))
+    (if (> line 0)
+      (set lpos (storage locationForStartOfLine:line))
+      (second (storage rangeOfLeadingWhitespaceForLineAtLocation:lpos))
+      (else
+        -1))))
+
 ; Inserts matching 'end' line whenever the user
 ; enters a ruby statement that marks the beginning of a block statement
 ; that requires and end.
 ;
 ; This brings Vico more in line with the behavior of opening quotes, 
 ; parenthesis; etc.
-
 
 ; Denotes that 'end' should be inserted and the next lin indented
 (set RUBY-CR-RUBY-CR-INSERT-END 1)
@@ -27,12 +121,12 @@
 
 ; Determines the type of Ruby CR to process
 (function type-of-cr ()
-  (let ((blockb (is-block-beginning?))
-        (matching-end (matching-end-exists-line? ((current-text) currentLine))))
+  (let ((block-beginning (is-block-beginning?))
+        (matching-end    (matching-end-line-exists? (+ 1 (current-line)))))
         
-    (cond ((and blockb (not matching-end))  RUBY-CR-RUBY-CR-INSERT-END)
-      ((is-block-beginning?)                RUBY-CR-INDENT-ONLY)
-      (else                                 RUBY-CR-NORMAL))))
+    (cond ((and block-beginning (not matching-end))  RUBY-CR-RUBY-CR-INSERT-END)
+      ((block-beginning)                             RUBY-CR-INDENT-ONLY)
+      (else                                          RUBY-CR-NORMAL))))
 
 ; Normal CR
 (function normal-cr-handling ()
@@ -56,34 +150,10 @@
 ; Remap CR for insert mode for ruby files
 ((ViMap insertMap) map:"<cr>" 
           toExpression:(do () (handle-ruby-cr))
-                 scope:"source.ruby.rails")
+                 scope:"source.ruby")
 
 ;
 ; Utility functions
-;
-(function range-of-content-after-line (line-nr)
-  (let ((storage   ((current-text) textStorage))
-        (next-line (+ line-nr 1)))
-  
-    (if (<= next-line (storage lineCount))
-      (list (storage locationForStartOfLine:next-line)
-            (- (storage length) (storage locationForStartOfLine:next-line))))))
-
-(function indent-of (line)
-  (let ((text     (current-text))
-        (storage  ((current-text) textStorage)))
-
-    (if (> line 0)
-      (set lpos (storage locationForStartOfLine:line))
-      (second (storage rangeOfLeadingWhitespaceForLineAtLocation:lpos))
-      (else 
-        -1))))
-
-(function line-at (line-number)
-  (let (range (((current-text) textStorage) rangeOfLine:line-number))
-  
-    ((((current-text) textStorage) string) substringWithRange:range)))
-
 (set ruby-beginning-of-block-pattern /^
   ( \s*+
     (   module | class | def
@@ -103,28 +173,21 @@
     .* $
   /x)
 
+(set ruby-end-line-pattern /^\s* \b end \b/x)
+
+(function matching-end-line-exists? (line)
+  (set current-indent (indent-of-line (current-line)))
+  (let ((first-end      (line-matching-pattern-and-indent line 
+                                                          ruby-end-line-pattern
+                                                          current-indent))
+        (next-beginning (line-matching-pattern-and-indent line 
+                                                          ruby-beginning-of-block-pattern
+                                                          current-indent)))
+      (cond
+        ((and first-end next-beginning) (< first-end next-beginning))
+        (first-end                      t)
+        (else                           ()))))
+  
 (function is-block-beginning? ()
-  (let (line ((current-text) line))
-
-    (ruby-beginning-of-block-pattern findInString:line)))
-
-
-(set ruby-end-line-pattern /^\s* \b end \b/xm)
-
-(function line-with-end-in-range (range)
-  (set line-content ((((current-text) textStorage) string) substringWithRange:range))
-  (set line-match (ruby-end-line-pattern findInString:line-content))
-
-  (if line-match
-    (((current-text) textStorage) lineNumberAtLocation:(+ 1 
-                                                          (first range)
-                                                          (first (line-match range))))))
-
-(function matching-end-exists-line? (line-nr)
-  (let (remaining-content (range-of-content-after-line line-nr))
-
-    (if remaining-content
-      (set matching-end (line-with-end-in-range remaining-content))
-      (if matching-end
-        (<= (indent-of line-nr) (indent-of matching-end))))))
+  (line-matches-pattern? (current-line) ruby-beginning-of-block-pattern))
 
